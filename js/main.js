@@ -24,29 +24,105 @@ function formatDate(dateString) {
     });
 }
 
+function extractMarkdownImages(content) {
+    const imageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+    const images = [];
+    let match;
+    
+    while ((match = imageRegex.exec(content)) !== null) {
+        images.push({
+            alt: match[1],
+            url: match[2],
+            fullMatch: match[0]
+        });
+    }
+    
+    return images;
+}
+
 async function renderMemo(memo) {
     const memoEl = document.createElement('div');
     memoEl.className = 'memo';
     
+    // 提取Markdown中的图片
+    const mdImages = extractMarkdownImages(memo.content);
+    
+    // 从内容中移除图片
+    let content = memo.content;
+    mdImages.forEach(img => {
+        content = content.replace(img.fullMatch, '');
+    });
+    
+    // 处理其他部分
     const userId = memo.creator.split('/')[1];
     const userInfo = await api.getUserInfo(userId);
-    
     const avatarUrl = `${api.instance}${userInfo.avatarUrl}`;
-    
-    // 提取标签
     const tags = memo.tags || [];
     const tagsHtml = tags.map(tag => 
         `<span class="tag">${tag}</span>`
     ).join('');
     
-    // 处理内容，移除标签
-    let content = memo.content;
+    // 移除标签
     tags.forEach(tag => {
         content = content.replace(`#${tag}`, '');
     });
     
-    // 渲染Markdown内容
-    const renderedContent = md.render(content.trim());
+    // 渲染Markdown内容并处理链接
+    let renderedContent = md.render(content.trim());
+    renderedContent = renderedContent.replace(
+        /<a\s+href="([^"]+)">/g, 
+        '<a href="$1" target="_blank" style="display: inline-block; width: 100%;">'
+    );
+    
+    // 创建图片网格
+    const imageGrid = document.createElement('div');
+    imageGrid.className = 'image-grid';
+    imageGrid.style.cssText = `
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-top: 10px;
+    `;
+    
+    // 合并Markdown图片和资源列表图片
+    const allImages = [...mdImages];
+    if (memo.resourceList) {
+        const resourceImages = memo.resourceList
+            .filter(resource => resource.type.startsWith('image/'))
+            .map(resource => ({
+                url: resource.externalLink,
+                alt: resource.name || '图片'
+            }));
+        allImages.push(...resourceImages);
+    }
+    
+    // 添加所有图片到网格
+    allImages.forEach(img => {
+        const imgContainer = document.createElement('div');
+        imgContainer.style.cssText = `
+            aspect-ratio: 1;
+            overflow: hidden;
+        `;
+        
+        const link = document.createElement('a');
+        link.href = img.url;
+        link.setAttribute('data-lightbox', `memo-${memo.id}`);
+        link.setAttribute('data-title', img.alt || '');
+        
+        const imgEl = document.createElement('img');
+        imgEl.src = img.url;
+        imgEl.alt = img.alt || '图片';
+        imgEl.style.cssText = `
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        `;
+        imgEl.loading = 'lazy';
+        
+        link.appendChild(imgEl);
+        imgContainer.appendChild(link);
+        imageGrid.appendChild(imgContainer);
+    });
     
     memoEl.innerHTML = `
         <div class="memo-header">
@@ -62,6 +138,11 @@ async function renderMemo(memo) {
             <div class="memo-content markdown-body">${renderedContent}</div>
         </div>
     `;
+    
+    // 添加图片网格到memo元素
+    if (allImages.length > 0) {
+        memoEl.querySelector('.memo-content-wrapper').appendChild(imageGrid);
+    }
     
     return memoEl;
 }
@@ -137,12 +218,14 @@ async function loadMemos(isLoadMore = false) {
         currentPageToken = response.nextPageToken || '';
         
         // 更新加载更多按钮状态
-        if (currentPageToken) {
-            loadMoreBtn.style.display = 'block';
-            loadMoreBtn.textContent = '加载更多';
-            loadMoreBtn.disabled = false;
-        } else {
-            loadMoreBtn.style.display = 'none';
+        if (loadMoreBtn) {
+            if (currentPageToken) {
+                loadMoreBtn.style.display = 'block';
+                loadMoreBtn.textContent = '加载更多';
+                loadMoreBtn.disabled = false;
+            } else {
+                loadMoreBtn.style.display = 'none';
+            }
         }
         
     } catch (error) {
@@ -150,12 +233,14 @@ async function loadMemos(isLoadMore = false) {
         if (container) {
             container.innerHTML = '<div class="error">加载失败，请稍后重试</div>';
         }
-        loadMoreBtn.textContent = '加载失败，点击重试';
-        loadMoreBtn.disabled = false;
+        if (loadMoreBtn) {
+            loadMoreBtn.textContent = '加载失败，点击重试';
+            loadMoreBtn.disabled = false;
+        }
     }
 }
 
-// 初始化页面
+// 移除重复的 DOMContentLoaded 事件监听器，合并为一个
 document.addEventListener('DOMContentLoaded', () => {
     // 确保jQuery和lightbox都已加载
     if (typeof jQuery !== 'undefined' && typeof lightbox !== 'undefined') {
@@ -166,11 +251,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     
-    // 初始化页面
-    loadMemos();
-});
-
-document.addEventListener('DOMContentLoaded', () => {
     const container = document.getElementById('memos-container');
     
     // 添加加载更多按钮
