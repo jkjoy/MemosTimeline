@@ -41,145 +41,168 @@ function extractMarkdownImages(content) {
 }
 
 async function renderMemo(memo) {
-    const memoEl = document.createElement('div');
-    memoEl.className = 'memo';
-    
-    // 提取Markdown中的图片
-    const mdImages = extractMarkdownImages(memo.content);
-    
-    // 从内容中移除图片
-    let content = memo.content;
-    mdImages.forEach(img => {
-        content = content.replace(img.fullMatch, '');
-    });
-    
-    // 处理其他部分
-    const userId = memo.creator.split('/')[1];
-    const userInfo = await api.getUserInfo(userId);
-    const avatarUrl = `${api.instance}${userInfo.avatarUrl}`;
-    const tags = memo.tags || [];
-    const tagsHtml = tags.map(tag => 
-        `<span class="tag">${tag}</span>`
-    ).join('');
-    
-    // 移除标签
-    tags.forEach(tag => {
-        content = content.replace(`#${tag}`, '');
-    });
-    
-    // 渲染Markdown内容并处理链接
-    let renderedContent = md.render(content.trim());
-    renderedContent = renderedContent.replace(
-        /<a\s+href="([^"]+)">/g, 
-        '<a href="$1" target="_blank" style="display: inline-block; width: 100%;">'
-    );
-    
-    // 创建图片网格
-    const imageGrid = document.createElement('div');
-    imageGrid.className = 'image-grid';
-    imageGrid.style.cssText = `
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 8px;
-        margin-top: 10px;
-    `;
-    
-    // 合并Markdown图片和资源列表图片
-    const allImages = [...mdImages];
-    if (memo.resourceList) {
-        const resourceImages = memo.resourceList
-            .filter(resource => resource.type.startsWith('image/'))
-            .map(resource => ({
-                url: resource.externalLink,
-                alt: resource.name || '图片'
-            }));
-        allImages.push(...resourceImages);
-    }
-    
-    // 添加所有图片到网格
-    allImages.forEach(img => {
-        const imgContainer = document.createElement('div');
-        imgContainer.style.cssText = `
-            aspect-ratio: 1;
-            overflow: hidden;
+    try {
+        const memoEl = document.createElement('div');
+        memoEl.className = 'memo';
+        
+        // 提取和处理图片（优化性能）
+        const mdImages = extractMarkdownImages(memo.content);
+        let content = memo.content;
+        
+        // 使用正则一次性替换所有图片
+        content = content.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '');
+        
+        // 异步获取用户信息
+        const userId = memo.creator.split('/')[1];
+        const userInfo = await api.getUserInfo(userId).catch(err => ({
+            nickname: '未知用户',
+            description: '',
+            avatarUrl: '/default-avatar.png'
+        }));
+        const avatarUrl = `${api.instance}${userInfo.avatarUrl}`;
+        const tags = memo.tags || [];
+        const tagsHtml = tags.map(tag => 
+            `<span class="tag">${tag}</span>`
+        ).join('');
+        
+        // 移除标签
+        tags.forEach(tag => {
+            content = content.replace(`#${tag}`, '');
+        });
+        
+        // 渲染Markdown内容并处理链接
+        let renderedContent = md.render(content.trim());
+        renderedContent = renderedContent.replace(
+            /<a\s+href="([^"]+)">/g, 
+            '<a href="$1" target="_blank" style="display: inline-block; width: 100%;">'
+        );
+        
+        // 创建图片网格
+        const imageGrid = document.createElement('div');
+        imageGrid.className = 'image-grid';
+        imageGrid.style.cssText = `
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-top: 10px;
         `;
         
-        const link = document.createElement('a');
-        link.href = img.url;
-        link.setAttribute('data-lightbox', `memo-${memo.id}`);
-        link.setAttribute('data-title', img.alt || '');
+        // 合并Markdown图片和资源列表图片
+        const allImages = [...mdImages];
+        const downloadLinks = [];
         
-        const imgEl = document.createElement('img');
-        imgEl.src = img.url;
-        imgEl.alt = img.alt || '图片';
-        imgEl.style.cssText = `
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        `;
-        imgEl.loading = 'lazy';
-        
-        link.appendChild(imgEl);
-        imgContainer.appendChild(link);
-        imageGrid.appendChild(imgContainer);
-    });
-    
-    memoEl.innerHTML = `
-        <div class="memo-header">
-            <img class="avatar" src="${avatarUrl}" alt="avatar">
-            <div class="user-info">
-                <div class="user-name">${userInfo.nickname}</div>
-                <div class="user-description">${userInfo.description || ''}</div>
-                <div class="memo-time">${formatDate(memo.createTime)}</div>
+        // 处理资源列表 - 修改 resourceList 为 resources
+        if (memo.resources && memo.resources.length > 0) {
+            console.log('Processing resources for memo:', memo.id, memo.resources);
+            
+            memo.resources.forEach(resource => {
+                const baseUrl = api.instance.endsWith('/') ? api.instance.slice(0, -1) : api.instance;
+                const resourceUrl = `${baseUrl}/file/${resource.name}/${resource.filename}`;
+                
+                console.log('Resource URL:', resourceUrl);
+                
+                if (resource.type.startsWith('image/')) {
+                    allImages.push({
+                        url: resourceUrl,
+                        alt: resource.filename || '图片'
+                    });
+                    console.log('Added image to grid:', resourceUrl);
+                } else {
+                    downloadLinks.push(`
+                        <a href="${resourceUrl}" 
+                           target="_blank" 
+                           class="resource-download-link"
+                           download="${resource.filename}">
+                            📎 下载 ${resource.filename}
+                        </a>
+                    `);
+                }
+            });
+        }
+
+        // 使用DocumentFragment提高性能，添加所有图片
+        if (allImages.length > 0) {
+            console.log('Creating image containers for:', allImages.length, 'images'); // 调试日志
+            const fragment = document.createDocumentFragment();
+            allImages.forEach(img => {
+                const imgContainer = createImageContainer(img, memo.id);
+                fragment.appendChild(imgContainer);
+            });
+            imageGrid.appendChild(fragment);
+        }
+
+        memoEl.innerHTML = `
+            <div class="memo-header">
+                <img class="avatar" src="${avatarUrl}" alt="avatar">
+                <div class="user-info">
+                    <div class="user-name">${userInfo.nickname}</div>
+                    <div class="user-description">${userInfo.description || ''}</div>
+                    <div class="memo-time">${formatDate(memo.createTime)}</div>
+                </div>
             </div>
-        </div>
-        <div class="memo-content-wrapper">
-            <div class="tags-container">${tagsHtml}</div>
-            <div class="memo-content markdown-body">${renderedContent}</div>
-        </div>
-    `;
-    
-    // 添加图片网格到memo元素
-    if (allImages.length > 0) {
-        memoEl.querySelector('.memo-content-wrapper').appendChild(imageGrid);
+            <div class="memo-content-wrapper">
+                <div class="tags-container">${tagsHtml}</div>
+                <div class="memo-content markdown-body">${renderedContent}</div>
+                ${downloadLinks.length > 0 ? 
+                    `<div class="resource-downloads">${downloadLinks.join('')}</div>` 
+                    : ''
+                }
+            </div>
+        `;
+
+        // 确保在设置innerHTML后再添加图片网格
+        if (allImages.length > 0) {
+            console.log('Appending image grid with', allImages.length, 'images'); // 调试日志
+            const contentWrapper = memoEl.querySelector('.memo-content-wrapper');
+            if (contentWrapper) {
+                contentWrapper.appendChild(imageGrid);
+            } else {
+                console.error('Content wrapper not found'); // 调试日志
+            }
+        }
+
+        return memoEl;
+        
+    } catch (error) {
+        console.error('渲染memo失败:', error, memo);
+        return createErrorMemoElement();
     }
-    
-    return memoEl;
 }
 
-function collectImages(memo) {
-    const gallery = document.createElement('div');
-    gallery.className = 'image-gallery';
+// 新增：创建图片容器的辅助函数
+function createImageContainer(img, memoId) {
+    const imgContainer = document.createElement('div');
+    imgContainer.style.cssText = `
+        aspect-ratio: 1;
+        overflow: hidden;
+    `;
     
-    if (!memo.resourceList || !Array.isArray(memo.resourceList)) {
-        return gallery;
-    }
+    const link = document.createElement('a');
+    link.href = img.url;
+    link.setAttribute('data-lightbox', `memo-${memoId}`);
+    link.setAttribute('data-title', img.alt || '');
     
-    const imageResources = memo.resourceList.filter(resource => 
-        resource.type.startsWith('image/'));
-        
-    imageResources.forEach(resource => {
-        if (resource.externalLink) {
-            const imgContainer = document.createElement('div');
-            imgContainer.className = 'image-container';
-            
-            const link = document.createElement('a');
-            link.href = resource.externalLink;
-            link.setAttribute('data-lightbox', `memo-${memo.id}`);
-            link.setAttribute('data-title', resource.name || '');
-            
-            const img = document.createElement('img');
-            img.src = resource.externalLink;
-            img.alt = resource.name || '图片';
-            img.loading = 'lazy';  // 添加延迟加载
-            
-            link.appendChild(img);
-            imgContainer.appendChild(link);
-            gallery.appendChild(imgContainer);
-        }
-    });
+    const imgEl = document.createElement('img');
+    imgEl.src = img.url;
+    imgEl.alt = img.alt || '图片';
+    imgEl.style.cssText = `
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    `;
+    imgEl.loading = 'lazy';
+    
+    link.appendChild(imgEl);
+    imgContainer.appendChild(link);
+    return imgContainer;
+}
 
-    return gallery;
+// 新增：创建错误提示元素的辅助函数
+function createErrorMemoElement() {
+    const errorEl = document.createElement('div');
+    errorEl.className = 'memo error';
+    errorEl.innerHTML = '<p>加载失败，请刷新重试</p>';
+    return errorEl;
 }
 
 let currentPageToken = '';
@@ -206,13 +229,22 @@ async function loadMemos(isLoadMore = false) {
         
         if (!isLoadMore) {
             container.innerHTML = '';
-            collectImages(response.memos);
         }
         
-        for (const memo of response.memos) {
-            const memoEl = await renderMemo(memo);
-            container.appendChild(memoEl);
-        }
+        // 使用 DocumentFragment 批量处理所有 memo
+        const fragment = document.createDocumentFragment();
+        
+        // 并行处理所有 memo 的渲染
+        const memoPromises = response.memos.map(memo => renderMemo(memo));
+        const memoElements = await Promise.all(memoPromises);
+        
+        // 将所有渲染好的元素添加到 fragment
+        memoElements.forEach(memoEl => {
+            fragment.appendChild(memoEl);
+        });
+        
+        // 一次性将所有元素添加到容器中
+        container.appendChild(fragment);
         
         // 更新页面令牌
         currentPageToken = response.nextPageToken || '';
@@ -253,15 +285,27 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const container = document.getElementById('memos-container');
     
-    // 添加加载更多按钮
+    // 创建一个包装容器来包含memos列表和加载更多按钮
+    const memosWrapper = document.createElement('div');
+    memosWrapper.className = 'memos-wrapper';
+    
+    // 将原有container的内容移到wrapper中
+    container.parentNode.insertBefore(memosWrapper, container);
+    memosWrapper.appendChild(container);
+    
+    // 添加加载更多按钮到wrapper中
     const loadMoreBtn = document.createElement('button');
     loadMoreBtn.id = 'load-more';
     loadMoreBtn.className = 'load-more-btn';
     loadMoreBtn.textContent = '加载更多';
-    document.body.appendChild(loadMoreBtn);
+    memosWrapper.appendChild(loadMoreBtn);
     
-    // 绑定加载更多事件
-    loadMoreBtn.addEventListener('click', () => loadMemos(true));
+    // 添加防抖处理
+    let loadMoreTimeout;
+    loadMoreBtn.addEventListener('click', () => {
+        if (loadMoreTimeout) clearTimeout(loadMoreTimeout);
+        loadMoreTimeout = setTimeout(() => loadMemos(true), 300);
+    });
     
     // 初始加载
     loadMemos();
