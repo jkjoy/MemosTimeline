@@ -208,16 +208,16 @@ function createErrorMemoElement() {
 let currentPageToken = '';
 
 async function loadMemos(isLoadMore = false) {
-    const container = document.getElementById('memos-container');
+    const memosContainer = document.getElementById('memos');
     const loadMoreBtn = document.getElementById('load-more');
     
-    if (!container) {
+    if (!memosContainer) {
         console.error('未找到memos容器元素');
         return;
     }
     
     if (!isLoadMore) {
-        container.innerHTML = '<div class="loading">加载中...</div>';
+        memosContainer.innerHTML = '<div class="loading">加载中...</div>';
         currentPageToken = '';
     } else if (loadMoreBtn) {
         loadMoreBtn.textContent = '加载中...';
@@ -228,7 +228,7 @@ async function loadMemos(isLoadMore = false) {
         const response = await api.getMemos(10, currentPageToken);
         
         if (!isLoadMore) {
-            container.innerHTML = '';
+            memosContainer.innerHTML = '';
         }
         
         // 使用 DocumentFragment 批量处理所有 memo
@@ -244,7 +244,7 @@ async function loadMemos(isLoadMore = false) {
         });
         
         // 一次性将所有元素添加到容器中
-        container.appendChild(fragment);
+        memosContainer.appendChild(fragment);
         
         // 更新页面令牌
         currentPageToken = response.nextPageToken || '';
@@ -262,8 +262,8 @@ async function loadMemos(isLoadMore = false) {
         
     } catch (error) {
         console.error('加载备忘录失败:', error);
-        if (container) {
-            container.innerHTML = '<div class="error">加载失败，请稍后重试</div>';
+        if (memosContainer) {
+            memosContainer.innerHTML = '<div class="error">加载失败，请稍后重试</div>';
         }
         if (loadMoreBtn) {
             loadMoreBtn.textContent = '加载失败，点击重试';
@@ -283,15 +283,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     
-    const container = document.getElementById('memos-container');
+    const memosContainer = document.getElementById('memos');
     
     // 创建一个包装容器来包含memos列表和加载更多按钮
     const memosWrapper = document.createElement('div');
     memosWrapper.className = 'memos-wrapper';
     
-    // 将原有container的内容移到wrapper中
-    container.parentNode.insertBefore(memosWrapper, container);
-    memosWrapper.appendChild(container);
+    // 将原有memos容器的内容移到wrapper中
+    memosContainer.parentNode.insertBefore(memosWrapper, memosContainer);
+    memosWrapper.appendChild(memosContainer);
     
     // 添加加载更多按钮到wrapper中
     const loadMoreBtn = document.createElement('button');
