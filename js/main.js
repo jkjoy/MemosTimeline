@@ -55,7 +55,7 @@ async function renderMemo(memo) {
         // 异步获取用户信息
         const userId = memo.creator.split('/')[1];
         const userInfo = await api.getUserInfo(userId).catch(err => ({
-            nickname: '未知用户',
+            displayName: '未知用户',
             description: '',
             avatarUrl: '/default-avatar.png'
         }));
