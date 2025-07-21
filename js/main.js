@@ -135,7 +135,7 @@ async function renderMemo(memo) {
             <div class="memo-header">
                 <img class="avatar" src="${avatarUrl}" alt="avatar">
                 <div class="user-info">
-                    <div class="user-name">${userInfo.nickname}</div>
+                    <div class="user-name">${userInfo.displayName}</div>
                     <div class="user-description">${userInfo.description || ''}</div>
                     <div class="memo-time">${formatDate(memo.createTime)}</div>
                 </div>
